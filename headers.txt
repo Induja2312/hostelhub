@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Cache-Control: no-cache, no-store
+Pragma: no-cache
+Transfer-Encoding: chunked
+Content-Type: text/html; charset=utf-8
+Server: Microsoft-IIS/8.0
+Strict-Transport-Security: max-age=2592000
+Set-Cookie: .AspNetCore.Antiforgery.hK9c-krssT0=CfDJ8KZDeKsOZ3ZIslWSrKkOZ1MaorIFsQ-x6SCPBsTCWq9x5CYsnrkl55BgzypVvvKamqZig68d9sDuE6dy6kdRpsz4gdkuXAEpLO26mUjxL2BcY1VEDczQeMAJTQ4mIY4eP3WsY4BN27xafrMfwjQl3Zs; path=/studzone; samesite=strict; httponly
+Set-Cookie: .AspNetCore.Mvc.CookieTempDataProvider=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/studzone; samesite=lax; httponly
+X-Frame-Options: SAMEORIGIN
+X-Powered-By: ASP.NET
+Date: Wed, 15 Apr 2026 12:09:01 GMT
+

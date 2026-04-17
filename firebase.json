@@ -1,0 +1,24 @@
+{
+  "functions": {
+    "source": "functions"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "hostelhub-88559",
+          "appId": "1:884006092129:android:32527aca1dfa1b0540d920",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "hostelhub-88559",
+          "configurations": {
+            "android": "1:884006092129:android:32527aca1dfa1b0540d920"
+          }
+        }
+      }
+    }
+  }
+}
