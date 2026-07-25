@@ -1,0 +1,1947 @@
+================================================================================
+                    HOSTELHUB - COMPLETE CODE DOCUMENTATION
+================================================================================
+
+Project: HostelHub - A comprehensive hostel management system built with Flutter
+Architecture: MVVM with Provider for state management
+Backend: Firebase (Auth, Firestore, Storage, Messaging)
+
+================================================================================
+                              TABLE OF CONTENTS
+================================================================================
+
+1. MAIN ENTRY POINT (main.dart)
+2. APP CONFIGURATION (app.dart)
+3. FIREBASE SETUP (firebase_options.dart)
+4. CORE - CONSTANTS (app_routes.dart, app_colors.dart, app_strings.dart)
+5. CORE - THEME (aurora_theme.dart)
+6. DATA MODELS
+7. SERVICES
+8. PROVIDERS (State Management)
+9. FIREBASE REALTIME MESSAGING & NOTIFICATIONS
+10. SYSTEM OVERVIEW & ARCHITECTURE
+
+================================================================================
+1. MAIN ENTRY POINT - lib/main.dart
+================================================================================
+
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
+import 'app.dart';
+import 'firebase_options.dart';
+import 'providers/auth_provider.dart';
+import 'providers/complaint_provider.dart';
+import 'providers/resource_provider.dart';
+import 'providers/service_provider.dart';
+import 'providers/lost_found_provider.dart';
+import 'providers/announcement_provider.dart';
+import 'providers/parcel_provider.dart';
+import 'providers/medical_provider.dart';
+import 'services/auth_service.dart';
+import 'services/firestore_service.dart';
+import 'services/notification_service.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService().initialize();
+
+  FlutterError.onError = (details) {
+    debugPrint('Flutter error: ${details.exceptionAsString()}');
+  };
+
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider(AuthService(), FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ComplaintProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ResourceProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ServiceProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => LostFoundProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => AnnouncementProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ParcelProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => MedicalProvider()),
+      ],
+      child: const _ErrorBoundary(child: HostelHubApp()),
+    ),
+  );
+}
+
+class _ErrorBoundary extends StatefulWidget {
+  final Widget child;
+  const _ErrorBoundary({required this.child});
+
+  @override
+  State<_ErrorBoundary> createState() => _ErrorBoundaryState();
+}
+
+class _ErrorBoundaryState extends State<_ErrorBoundary> {
+  Object? _error;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: const Color(0xFF0D0D2B),
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.error_outline, color: Color(0xFFF472B6), size: 64),
+                const SizedBox(height: 16),
+                const Text('Something went wrong',
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text('Please restart the app. If the problem persists, contact support.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white54, fontSize: 14)),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Try Again'),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return widget.child;
+  }
+}
+
+
+================================================================================
+2. APP CONFIGURATION - lib/app.dart
+================================================================================
+
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import 'core/widgets/sparkle_overlay.dart';
+import 'core/widgets/offline_indicator.dart';
+import 'core/constants/app_routes.dart';
+import 'core/theme/aurora_theme.dart';
+
+import 'providers/auth_provider.dart';
+import 'screens/auth/login_screen.dart';
+import 'screens/auth/register_screen.dart';
+import 'screens/auth/forgot_password_screen.dart';
+
+// Student
+import 'screens/student/student_dashboard.dart';
+import 'screens/student/profile_screen.dart';
+import 'screens/student/complaint_screen.dart';
+import 'screens/student/resource_sharing_screen.dart';
+import 'screens/student/service_request_screen.dart';
+import 'screens/student/medical_help_screen.dart';
+import 'screens/student/emergency_screen.dart';
+import 'screens/student/lost_found_screen.dart';
+import 'screens/student/announcements_screen.dart';
+import 'screens/student/parcel_screen.dart';
+
+// Warden
+import 'screens/warden/warden_dashboard.dart';
+import 'screens/warden/manage_complaints_screen.dart';
+import 'screens/warden/manage_services_screen.dart';
+import 'screens/warden/post_announcement_screen.dart';
+import 'screens/warden/emergency_alerts_screen.dart';
+
+// Doctor
+import 'screens/doctor/doctor_dashboard.dart';
+
+// Admin
+import 'screens/admin/admin_dashboard.dart';
+import 'screens/admin/manage_users_screen.dart';
+import 'screens/admin/reports_screen.dart';
+
+class HostelHubApp extends StatefulWidget {
+  const HostelHubApp({Key? key}) : super(key: key);
+
+  @override
+  State<HostelHubApp> createState() => _HostelHubAppState();
+}
+
+class _HostelHubAppState extends State<HostelHubApp> {
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    final authProvider = context.read<AuthProvider>();
+    _router = GoRouter(
+      initialLocation: AppRoutes.login,
+      refreshListenable: authProvider,
+      redirect: (context, state) {
+        final auth = context.read<AuthProvider>();
+        if (auth.isLoading) return null;
+        final isLoggedIn = auth.user != null;
+        final isLoggingIn = state.uri.toString() == AppRoutes.login ||
+            state.uri.toString() == AppRoutes.register ||
+            state.uri.toString() == AppRoutes.forgotPassword;
+
+        if (!isLoggedIn && !isLoggingIn) return AppRoutes.login;
+
+        if (isLoggedIn && isLoggingIn) {
+          final role = auth.currentUserModel?.role;
+          if (role == 'student') return AppRoutes.studentDashboard;
+          if (role == 'warden') return AppRoutes.wardenDashboard;
+          if (role == 'doctor') return AppRoutes.doctorDashboard;
+          if (role == 'admin') return AppRoutes.adminDashboard;
+          return AppRoutes.studentDashboard;
+        }
+        return null;
+      },
+      routes: [
+        GoRoute(path: AppRoutes.login,                pageBuilder: (c, s) => _page(s, const LoginScreen())),
+        GoRoute(path: AppRoutes.register,             pageBuilder: (c, s) => _page(s, const RegisterScreen())),
+        GoRoute(path: AppRoutes.forgotPassword,       pageBuilder: (c, s) => _page(s, const ForgotPasswordScreen())),
+        GoRoute(path: AppRoutes.studentDashboard,     pageBuilder: (c, s) => _page(s, const StudentDashboard())),
+        GoRoute(path: AppRoutes.studentProfile,       pageBuilder: (c, s) => _page(s, const ProfileScreen())),
+        GoRoute(path: AppRoutes.studentComplaints,    pageBuilder: (c, s) => _page(s, const ComplaintScreen())),
+        GoRoute(path: AppRoutes.studentResources,     pageBuilder: (c, s) => _page(s, const ResourceSharingScreen())),
+        GoRoute(path: AppRoutes.studentServices,      pageBuilder: (c, s) => _page(s, const ServiceRequestScreen())),
+        GoRoute(path: AppRoutes.studentMedical,       pageBuilder: (c, s) => _page(s, const MedicalHelpScreen())),
+        GoRoute(path: AppRoutes.studentEmergency,     pageBuilder: (c, s) => _page(s, const EmergencyScreen())),
+        GoRoute(path: AppRoutes.studentLostFound,     pageBuilder: (c, s) => _page(s, const LostFoundScreen())),
+        GoRoute(path: AppRoutes.studentAnnouncements, pageBuilder: (c, s) => _page(s, const AnnouncementsScreen())),
+        GoRoute(path: AppRoutes.studentParcels,       pageBuilder: (c, s) => _page(s, const ParcelScreen())),
+        GoRoute(path: AppRoutes.wardenDashboard,      pageBuilder: (c, s) => _page(s, const WardenDashboard())),
+        GoRoute(path: AppRoutes.wardenComplaints,     pageBuilder: (c, s) => _page(s, const ManageComplaintsScreen())),
+        GoRoute(path: AppRoutes.wardenServices,       pageBuilder: (c, s) => _page(s, const ManageServicesScreen())),
+        GoRoute(path: AppRoutes.wardenAnnouncements,  pageBuilder: (c, s) => _page(s, const PostAnnouncementScreen())),
+        GoRoute(path: AppRoutes.wardenEmergency,      pageBuilder: (c, s) => _page(s, const EmergencyAlertsScreen())),
+        GoRoute(path: AppRoutes.doctorDashboard,      pageBuilder: (c, s) => _page(s, const DoctorDashboard())),
+        GoRoute(path: AppRoutes.adminDashboard,       pageBuilder: (c, s) => _page(s, const AdminDashboard())),
+        GoRoute(path: AppRoutes.adminUsers,           pageBuilder: (c, s) => _page(s, const ManageUsersScreen())),
+        GoRoute(path: AppRoutes.adminReports,         pageBuilder: (c, s) => _page(s, const ReportsScreen())),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SparkleOverlay(
+      child: OfflineIndicator(
+        child: MaterialApp.router(
+          title: 'HostelHub',
+          debugShowCheckedModeBanner: false,
+          theme: AuroraTheme.theme,
+          routerConfig: _router,
+        ),
+      ),
+    );
+  }
+
+  static CustomTransitionPage _page(GoRouterState state, Widget child) {
+    return CustomTransitionPage(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: const Duration(milliseconds: 350),
+      reverseTransitionDuration: const Duration(milliseconds: 300),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final fade = CurvedAnimation(parent: animation, curve: Curves.easeInOutCubic);
+        final slide = Tween<Offset>(begin: const Offset(0.04, 0), end: Offset.zero)
+            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+        final oldFade = Tween<double>(begin: 1.0, end: 0.0)
+            .animate(CurvedAnimation(parent: secondaryAnimation, curve: Curves.easeIn));
+        return FadeTransition(
+          opacity: oldFade,
+          child: FadeTransition(
+            opacity: fade,
+            child: SlideTransition(position: slide, child: child),
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+================================================================================
+3. FIREBASE SETUP - lib/firebase_options.dart
+================================================================================
+
+// File generated by FlutterFire CLI.
+// ignore_for_file: type=lint
+import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+
+/// Default [FirebaseOptions] for use with your Firebase apps.
+class DefaultFirebaseOptions {
+  static FirebaseOptions get currentPlatform {
+    if (kIsWeb) {
+      return web;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return android;
+      case TargetPlatform.iOS:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for ios - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
+      case TargetPlatform.macOS:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for macos - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
+      case TargetPlatform.windows:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for windows - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
+      case TargetPlatform.linux:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for linux - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
+      default:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions are not supported for this platform.',
+        );
+    }
+  }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyAei-8wNf4du0jJSfkoPvfn49qKU5uNIQ8',
+    authDomain: 'hostelhub-88559.firebaseapp.com',
+    projectId: 'hostelhub-88559',
+    storageBucket: 'hostelhub-88559.firebasestorage.app',
+    messagingSenderId: '884006092129',
+    appId: '1:884006092129:web:f98fd4097f2f2f4840d920',
+    measurementId: 'G-PG3CVN722S',
+  );
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyCUKxuxlbY-BDWTnyYcxhbezJJdfpeNBjw',
+    appId: '1:884006092129:android:32527aca1dfa1b0540d920',
+    messagingSenderId: '884006092129',
+    projectId: 'hostelhub-88559',
+    storageBucket: 'hostelhub-88559.firebasestorage.app',
+  );
+}
+
+
+================================================================================
+4. CORE - CONSTANTS
+================================================================================
+
+----- 4.1 APP ROUTES - lib/core/constants/app_routes.dart -----
+
+class AppRoutes {
+  // Splash & Auth
+  static const String splash = '/';
+  static const String login = '/login';
+  static const String register = '/register';
+  static const String forgotPassword = '/forgot-password';
+
+  // Student Routes
+  static const String studentDashboard = '/student';
+  static const String studentComplaints = '/student/complaints';
+  static const String studentResources = '/student/resources';
+  static const String studentServices = '/student/services';
+  static const String studentMedical = '/student/medical';
+  static const String studentEmergency = '/student/emergency';
+  static const String studentLostFound = '/student/lost-found';
+  static const String studentAnnouncements = '/student/announcements';
+  static const String studentParcels = '/student/parcels';
+  static const String studentProfile = '/student/profile';
+  static const String studentVisitors = '/student/visitors';
+
+  // Warden Routes
+  static const String wardenDashboard = '/warden';
+  static const String wardenComplaints = '/warden/manage-complaints';
+  static const String wardenServices = '/warden/manage-services';
+  static const String wardenAnnouncements = '/warden/post-announcement';
+  static const String wardenEmergency = '/warden/emergency-alerts';
+
+  // Admin Routes
+  static const String adminDashboard = '/admin';
+  static const String adminUsers = '/admin/users';
+  static const String adminParcels = '/admin/parcels';
+  static const String adminReports = '/admin/reports';
+
+  // Doctor Routes
+  static const String doctorDashboard = '/doctor';
+}
+
+----- 4.2 APP COLORS - lib/core/constants/app_colors.dart -----
+
+import 'package:flutter/material.dart';
+
+class AppColors {
+  static const Color primary = Color(0xFF6750A4);
+  static const Color primaryContainer = Color(0xFFEADDFF);
+  static const Color onPrimary = Colors.white;
+  static const Color onPrimaryContainer = Color(0xFF21005D);
+
+  static const Color secondary = Color(0xFF625B71);
+  static const Color secondaryContainer = Color(0xFFE8DEF8);
+  static const Color onSecondary = Colors.white;
+  static const Color onSecondaryContainer = Color(0xFF1D192B);
+
+  static const Color background = Color(0xFFFFFBFE);
+  static const Color onBackground = Color(0xFF1C1B1F);
+  
+  static const Color surface = Color(0xFFFFFBFE);
+  static const Color onSurface = Color(0xFF1C1B1F);
+  static const Color surfaceVariant = Color(0xFFE7E0EC);
+  static const Color onSurfaceVariant = Color(0xFF49454F);
+
+  static const Color error = Color(0xFFB3261E);
+  static const Color errorContainer = Color(0xFFF9DEDC);
+  static const Color onError = Colors.white;
+  static const Color onErrorContainer = Color(0xFF410E0B);
+  
+  static const Color success = Color(0xFF388E3C);
+}
+
+----- 4.3 APP STRINGS - lib/core/constants/app_strings.dart -----
+
+class AppStrings {
+  static const String appName = 'HostelHub';
+  
+  // Auth
+  static const String loginTitle = 'Welcome Back';
+  static const String registerTitle = 'Create Account';
+  static const String emailHint = 'Email Address';
+  static const String passwordHint = 'Password';
+  static const String loginButton = 'Log In';
+  static const String registerButton = 'Register';
+  
+  // Dashboard Titles
+  static const String studentDashboard = 'Student Dashboard';
+  static const String wardenDashboard = 'Warden Dashboard';
+  static const String adminDashboard = 'Admin Dashboard';
+  
+  // Common
+  static const String loading = 'Loading...';
+  static const String error = 'An error occurred';
+  static const String success = 'Success';
+  static const String logout = 'Logout';
+  static const String submit = 'Submit';
+  static const String cancel = 'Cancel';
+}
+
+
+================================================================================
+5. CORE - THEME - lib/core/theme/aurora_theme.dart
+================================================================================
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+class AuroraColors {
+  static const Color backgroundDark  = Color(0xFF0D0D2B);
+  static const Color backgroundDeep  = Color(0xFF1A0A2E);
+  static const Color pink            = Color(0xFFF472B6);
+  static const Color indigo          = Color(0xFF818CF8);
+  static const Color green           = Color(0xFF34D399);
+  static const Color blue            = Color(0xFF60A5FA);
+  static const Color textPrimary     = Color(0xFFFFFFFF);
+  static Color get textSecondary     => const Color(0xFFFFFFFF).withOpacity(0.6);
+  static Color get textHint          => const Color(0xFFFFFFFF).withOpacity(0.3);
+  static Color get glassCardBg       => const Color(0xFFFFFFFF).withOpacity(0.06);
+  static Color get glassCardBorder   => const Color(0xFFFFFFFF).withOpacity(0.12);
+}
+
+class AuroraTheme {
+  static ThemeData get theme {
+    final base = ThemeData.dark(useMaterial3: true);
+    final textTheme = GoogleFonts.interTextTheme(base.textTheme).copyWith(
+      displayLarge:  GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w700),
+      displayMedium: GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w700),
+      headlineLarge: GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w600),
+      headlineMedium:GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w600),
+      headlineSmall: GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w600),
+      titleLarge:    GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w600),
+      titleMedium:   GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w500),
+      titleSmall:    GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w500),
+      bodyLarge:     GoogleFonts.inter(color: AuroraColors.textPrimary),
+      bodyMedium:    GoogleFonts.inter(color: AuroraColors.textSecondary),
+      bodySmall:     GoogleFonts.inter(color: AuroraColors.textSecondary),
+      labelLarge:    GoogleFonts.inter(color: AuroraColors.textPrimary, fontWeight: FontWeight.w500),
+    );
+
+    return base.copyWith(
+      splashColor: Colors.white.withOpacity(0.9),
+      highlightColor: const Color(0xFFF472B6).withOpacity(0.4),
+      splashFactory: InkSparkle.splashFactory,
+      textTheme: textTheme,
+      scaffoldBackgroundColor: AuroraColors.backgroundDark,
+      colorScheme: const ColorScheme.dark(
+        primary:   Color(0xFFF472B6),
+        secondary: Color(0xFF818CF8),
+        tertiary:  Color(0xFF34D399),
+        surface:   Color(0xFF1A0A2E),
+        error:     Color(0xFFFF6B6B),
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: true,
+        titleTextStyle: GoogleFonts.inter(
+          color: AuroraColors.textPrimary,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+        iconTheme: const IconThemeData(color: AuroraColors.textPrimary),
+      ),
+      cardTheme: CardThemeData(
+        color: Colors.transparent,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: AuroraColors.glassCardBorder, width: 0.5),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AuroraColors.glassCardBg,
+        hintStyle: GoogleFonts.inter(
+            color: const Color(0xFFFFFFFF).withOpacity(0.4), fontSize: 14),
+        labelStyle: GoogleFonts.inter(color: AuroraColors.textSecondary),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: AuroraColors.glassCardBorder),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+              color: const Color(0xFFFFFFFF).withOpacity(0.15)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFF472B6), width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFFF6B6B)),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFFF6B6B), width: 1.5),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFF472B6),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          splashFactory: InkSparkle.splashFactory,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14)),
+          minimumSize: const Size(double.infinity, 52),
+          textStyle: GoogleFonts.inter(
+              fontSize: 15, fontWeight: FontWeight.w500),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AuroraColors.pink,
+          splashFactory: InkSparkle.splashFactory,
+          textStyle:
+              GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AuroraColors.pink,
+          splashFactory: InkSparkle.splashFactory,
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: AuroraColors.textPrimary,
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          splashFactory: InkSparkle.splashFactory,
+        ),
+      ),
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        selectedItemColor: Color(0xFFF472B6),
+        unselectedItemColor: Color(0x99FFFFFF),
+        type: BottomNavigationBarType.fixed,
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: const Color(0xFFFFFFFF).withOpacity(0.05),
+        indicatorColor: const Color(0xFFF472B6).withOpacity(0.2),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return GoogleFonts.inter(
+                color: AuroraColors.pink,
+                fontSize: 12,
+                fontWeight: FontWeight.w600);
+          }
+          return GoogleFonts.inter(
+              color: AuroraColors.textSecondary, fontSize: 12);
+        }),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const IconThemeData(color: Color(0xFFF472B6));
+          }
+          return IconThemeData(
+              color: const Color(0xFFFFFFFF).withOpacity(0.6));
+        }),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: const Color(0xFF1A0A2E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: AuroraColors.glassCardBorder),
+        ),
+        titleTextStyle: GoogleFonts.inter(
+            color: AuroraColors.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.w600),
+        contentTextStyle:
+            GoogleFonts.inter(color: AuroraColors.textSecondary, fontSize: 14),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: const Color(0xFF1A0A2E),
+        contentTextStyle:
+            GoogleFonts.inter(color: AuroraColors.textPrimary, fontSize: 14),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: AuroraColors.glassCardBorder),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+      dividerTheme: DividerThemeData(
+        color: const Color(0xFFFFFFFF).withOpacity(0.08),
+        thickness: 0.5,
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: Color(0xFFF472B6),
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+    );
+  }
+}
+
+
+================================================================================
+6. DATA MODELS
+================================================================================
+
+----- 6.1 USER MODEL - lib/models/user_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class UserModel {
+  final String uid;
+  final String name;
+  final String email;
+  final String role; // "student" | "warden" | "admin"
+  final String roomNumber;
+  final String hostelBlock;
+  final String phone;
+  final DateTime createdAt;
+
+  UserModel({
+    required this.uid,
+    required this.name,
+    required this.email,
+    required this.role,
+    required this.roomNumber,
+    required this.hostelBlock,
+    required this.phone,
+    required this.createdAt,
+  });
+
+  factory UserModel.fromMap(Map<String, dynamic> map) {
+    return UserModel(
+      uid: map['uid'] ?? '',
+      name: map['name'] ?? '',
+      email: map['email'] ?? '',
+      role: map['role'] ?? 'student',
+      roomNumber: map['roomNumber'] ?? '',
+      hostelBlock: map['hostelBlock'] ?? '',
+      phone: map['phone'] ?? '',
+      createdAt: (map['createdAt'] as Timestamp).toDate(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'uid': uid,
+      'name': name,
+      'email': email,
+      'role': role,
+      'roomNumber': roomNumber,
+      'hostelBlock': hostelBlock,
+      'phone': phone,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+}
+
+----- 6.2 COMPLAINT MODEL - lib/models/complaint_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class ComplaintModel {
+  final String id;
+  final String studentId;
+  final String studentName;
+  final String category; // "electricity" | "water" | "wifi" | "furniture" | "other"
+  final String description;
+  final String status; // "pending" | "in_progress" | "resolved"
+  final String assignedTo;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  ComplaintModel({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    required this.category,
+    required this.description,
+    required this.status,
+    required this.assignedTo,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory ComplaintModel.fromMap(Map<String, dynamic> map, String id) {
+    return ComplaintModel(
+      id: id,
+      studentId: map['studentId'] ?? '',
+      studentName: map['studentName'] ?? '',
+      category: map['category'] ?? '',
+      description: map['description'] ?? '',
+      status: map['status'] ?? 'pending',
+      assignedTo: map['assignedTo'] ?? '',
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      updatedAt: (map['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'studentId': studentId,
+      'studentName': studentName,
+      'category': category,
+      'description': description,
+      'status': status,
+      'assignedTo': assignedTo,
+      'createdAt': Timestamp.fromDate(createdAt),
+      'updatedAt': Timestamp.fromDate(updatedAt),
+    };
+  }
+}
+
+----- 6.3 RESOURCE MODEL - lib/models/resource_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class ResourceModel {
+  final String id;
+  final String requesterId;
+  final String requesterName;
+  final String itemName;
+  final String description;
+  final DateTime neededBy;
+  final String status; // "open" | "offered" | "fulfilled"
+  final String? offererId;
+  final String? offererName;
+  final String? meetingLocation;
+  final DateTime? meetingTime;
+  final DateTime createdAt;
+
+  ResourceModel({
+    required this.id,
+    required this.requesterId,
+    required this.requesterName,
+    required this.itemName,
+    required this.description,
+    required this.neededBy,
+    required this.status,
+    this.offererId,
+    this.offererName,
+    this.meetingLocation,
+    this.meetingTime,
+    required this.createdAt,
+  });
+
+  factory ResourceModel.fromMap(Map<String, dynamic> map, String id) {
+    return ResourceModel(
+      id: id,
+      requesterId: map['requesterId'] ?? '',
+      requesterName: map['requesterName'] ?? '',
+      itemName: map['itemName'] ?? '',
+      description: map['description'] ?? '',
+      neededBy: (map['neededBy'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      status: map['status'] ?? 'open',
+      offererId: map['offererId'],
+      offererName: map['offererName'],
+      meetingLocation: map['meetingLocation'],
+      meetingTime: (map['meetingTime'] as Timestamp?)?.toDate(),
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'requesterId': requesterId,
+      'requesterName': requesterName,
+      'itemName': itemName,
+      'description': description,
+      'neededBy': Timestamp.fromDate(neededBy),
+      'status': status,
+      'offererId': offererId,
+      'offererName': offererName,
+      'meetingLocation': meetingLocation,
+      'meetingTime': meetingTime != null ? Timestamp.fromDate(meetingTime!) : null,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+}
+
+----- 6.4 SERVICE REQUEST MODEL - lib/models/service_request_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class ServiceRequestModel {
+  final String id;
+  final String studentId;
+  final String studentName;
+  final String roomNumber;
+  final String serviceType; // "cleaning" | "repair" | "plumbing" | "electrical"
+  final String description;
+  final String status; // "pending" | "assigned" | "completed"
+  final String assignedStaff;
+  final DateTime? scheduledTime;
+  final DateTime createdAt;
+
+  ServiceRequestModel({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    required this.roomNumber,
+    required this.serviceType,
+    required this.description,
+    required this.status,
+    required this.assignedStaff,
+    this.scheduledTime,
+    required this.createdAt,
+  });
+
+  factory ServiceRequestModel.fromMap(Map<String, dynamic> map, String id) {
+    return ServiceRequestModel(
+      id: id,
+      studentId: map['studentId'] ?? '',
+      studentName: map['studentName'] ?? '',
+      roomNumber: map['roomNumber'] ?? '',
+      serviceType: map['serviceType'] ?? '',
+      description: map['description'] ?? '',
+      status: map['status'] ?? 'pending',
+      assignedStaff: map['assignedStaff'] ?? '',
+      scheduledTime: map['scheduledTime'] != null ? (map['scheduledTime'] as Timestamp).toDate() : null,
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'studentId': studentId,
+      'studentName': studentName,
+      'roomNumber': roomNumber,
+      'serviceType': serviceType,
+      'description': description,
+      'status': status,
+      'assignedStaff': assignedStaff,
+      'scheduledTime': scheduledTime != null ? Timestamp.fromDate(scheduledTime!) : null,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+}
+
+----- 6.5 PARCEL MODEL - lib/models/parcel_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class ParcelModel {
+  final String id;
+  final String studentId;
+  final String studentName;
+  final String roomNumber;
+  final String senderName;
+  final String courierName;
+  final String trackingNumber;
+  final String status;
+  final String imageUrl;
+  final DateTime arrivedAt;
+  final DateTime? collectedAt;
+
+  ParcelModel({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    required this.roomNumber,
+    required this.senderName,
+    required this.courierName,
+    required this.trackingNumber,
+    required this.status,
+    this.imageUrl = '',
+    required this.arrivedAt,
+    this.collectedAt,
+  });
+
+  factory ParcelModel.fromMap(Map<String, dynamic> map, String id) {
+    return ParcelModel(
+      id: id,
+      studentId: map['studentId'] ?? '',
+      studentName: map['studentName'] ?? '',
+      roomNumber: map['roomNumber'] ?? '',
+      senderName: map['senderName'] ?? '',
+      courierName: map['courierName'] ?? '',
+      trackingNumber: map['trackingNumber'] ?? '',
+      status: map['status'] ?? 'arrived',
+      imageUrl: map['imageUrl'] ?? '',
+      arrivedAt: (map['arrivedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      collectedAt: map['collectedAt'] != null ? (map['collectedAt'] as Timestamp).toDate() : null,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'studentId': studentId,
+      'studentName': studentName,
+      'roomNumber': roomNumber,
+      'senderName': senderName,
+      'courierName': courierName,
+      'trackingNumber': trackingNumber,
+      'status': status,
+      'imageUrl': imageUrl,
+      'arrivedAt': Timestamp.fromDate(arrivedAt),
+      'collectedAt': collectedAt != null ? Timestamp.fromDate(collectedAt!) : null,
+    };
+  }
+}
+
+----- 6.6 ANNOUNCEMENT MODEL - lib/models/announcement_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class AnnouncementModel {
+  final String id;
+  final String postedBy;
+  final String postedByName;
+  final String title;
+  final String body;
+  final String priority; // "normal" | "urgent"
+  final String imageUrl;
+  final DateTime createdAt;
+
+  AnnouncementModel({
+    required this.id,
+    required this.postedBy,
+    required this.postedByName,
+    required this.title,
+    required this.body,
+    required this.priority,
+    this.imageUrl = '',
+    required this.createdAt,
+  });
+
+  factory AnnouncementModel.fromMap(Map<String, dynamic> map, String id) {
+    return AnnouncementModel(
+      id: id,
+      postedBy: map['postedBy'] ?? '',
+      postedByName: map['postedByName'] ?? '',
+      title: map['title'] ?? '',
+      body: map['body'] ?? '',
+      priority: map['priority'] ?? 'normal',
+      imageUrl: map['imageUrl'] ?? '',
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'postedBy': postedBy,
+      'postedByName': postedByName,
+      'title': title,
+      'body': body,
+      'priority': priority,
+      'imageUrl': imageUrl,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+}
+
+----- 6.7 LOST & FOUND MODEL - lib/models/lost_found_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class LostFoundModel {
+  final String id;
+  final String reportedBy;
+  final String reporterName;
+  final String contactInfo;
+  final String category;
+  final String itemName;
+  final String description;
+  final String location;
+  final String status; // "open" | "with_warden" | "collected"
+  final String imageUrl;
+  final DateTime? dateLost;
+  final String? wardenNote;
+  final DateTime createdAt;
+
+  LostFoundModel({
+    required this.id,
+    required this.reportedBy,
+    required this.reporterName,
+    required this.contactInfo,
+    required this.category,
+    required this.itemName,
+    required this.description,
+    required this.location,
+    required this.status,
+    required this.imageUrl,
+    this.dateLost,
+    this.wardenNote,
+    required this.createdAt,
+  });
+
+  factory LostFoundModel.fromMap(Map<String, dynamic> map, String id) {
+    return LostFoundModel(
+      id: id,
+      reportedBy: map['reportedBy'] ?? '',
+      reporterName: map['reporterName'] ?? '',
+      contactInfo: map['contactInfo'] ?? '',
+      category: map['category'] ?? 'Other',
+      itemName: map['itemName'] ?? '',
+      description: map['description'] ?? '',
+      location: map['location'] ?? '',
+      status: map['status'] ?? 'open',
+      imageUrl: map['imageUrl'] ?? '',
+      dateLost: (map['dateLost'] as Timestamp?)?.toDate(),
+      wardenNote: map['wardenNote'],
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'reportedBy': reportedBy,
+      'reporterName': reporterName,
+      'contactInfo': contactInfo,
+      'category': category,
+      'itemName': itemName,
+      'description': description,
+      'location': location,
+      'status': status,
+      'imageUrl': imageUrl,
+      'dateLost': dateLost != null ? Timestamp.fromDate(dateLost!) : null,
+      'wardenNote': wardenNote,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+}
+
+----- 6.8 EMERGENCY MODEL - lib/models/emergency_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class EmergencyModel {
+  final String id;
+  final String sentBy;
+  final String senderName;
+  final String roomNumber;
+  final String message;
+  final String status; // "active" | "resolved"
+  final DateTime createdAt;
+
+  EmergencyModel({
+    required this.id,
+    required this.sentBy,
+    required this.senderName,
+    required this.roomNumber,
+    required this.message,
+    required this.status,
+    required this.createdAt,
+  });
+
+  factory EmergencyModel.fromMap(Map<String, dynamic> map, String id) {
+    return EmergencyModel(
+      id: id,
+      sentBy: map['sentBy'] ?? '',
+      senderName: map['senderName'] ?? '',
+      roomNumber: map['roomNumber'] ?? '',
+      message: map['message'] ?? '',
+      status: map['status'] ?? 'active',
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'sentBy': sentBy,
+      'senderName': senderName,
+      'roomNumber': roomNumber,
+      'message': message,
+      'status': status,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+}
+
+----- 6.9 MEDICAL VISIT MODEL - lib/models/medical_visit_model.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class MedicalVisitModel {
+  final String id;
+  final String studentId;
+  final String studentName;
+  final String roomNumber;
+  final String symptoms;
+  final String notes;
+  final String urgency;
+  final String status;
+  final DateTime? preferredDate;
+  final DateTime? appointmentTime;
+  final String doctorInstruction;
+  final DateTime createdAt;
+
+  MedicalVisitModel({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    required this.roomNumber,
+    required this.symptoms,
+    required this.notes,
+    required this.urgency,
+    required this.status,
+    this.preferredDate,
+    this.appointmentTime,
+    required this.doctorInstruction,
+    required this.createdAt,
+  });
+
+  factory MedicalVisitModel.fromMap(Map<String, dynamic> map, String id) {
+    return MedicalVisitModel(
+      id: id,
+      studentId: map['studentId'] ?? '',
+      studentName: map['studentName'] ?? '',
+      roomNumber: map['roomNumber'] ?? '',
+      symptoms: map['symptoms'] ?? '',
+      notes: map['notes'] ?? '',
+      urgency: map['urgency'] ?? 'normal',
+      status: map['status'] ?? 'pending',
+      preferredDate: (map['preferredDate'] as Timestamp?)?.toDate(),
+      appointmentTime: (map['appointmentTime'] as Timestamp?)?.toDate(),
+      doctorInstruction: map['doctorInstruction'] ?? '',
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'studentId': studentId,
+        'studentName': studentName,
+        'roomNumber': roomNumber,
+        'symptoms': symptoms,
+        'notes': notes,
+        'urgency': urgency,
+        'status': status,
+        'preferredDate': preferredDate != null ? Timestamp.fromDate(preferredDate!) : null,
+        'appointmentTime': appointmentTime != null ? Timestamp.fromDate(appointmentTime!) : null,
+        'doctorInstruction': doctorInstruction,
+        'createdAt': Timestamp.fromDate(createdAt),
+      };
+}
+
+
+================================================================================
+7. SERVICES
+================================================================================
+
+----- 7.1 AUTH SERVICE - lib/services/auth_service.dart -----
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/user_model.dart';
+
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  AuthService() {
+    _auth.setSettings(appVerificationDisabledForTesting: true);
+  }
+
+  Stream<User?> get authStateChanges => _auth.authStateChanges();
+
+  Future<UserModel?> signIn(String email, String password) async {
+    UserCredential credential = await _auth.signInWithEmailAndPassword(email: email, password: password);
+    if (credential.user == null) return null;
+    try {
+      DocumentSnapshot doc = await _firestore.collection('users').doc(credential.user!.uid).get();
+      if (doc.exists) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isLoggedIn', true);
+        return UserModel.fromMap(doc.data() as Map<String, dynamic>);
+      }
+    } catch (e) {
+      debugPrint('Firestore read failed: $e');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    return UserModel(
+      uid: credential.user!.uid,
+      name: '',
+      email: email,
+      role: 'student',
+      roomNumber: '',
+      hostelBlock: '',
+      phone: '',
+      createdAt: DateTime.now(),
+    );
+  }
+
+  Future<UserModel?> register(String name, String email, String password, String role, 
+                               String room, String block, String phone) async {
+    try {
+      final methods = await _auth.fetchSignInMethodsForEmail(email);
+      debugPrint('Existing sign-in methods for $email: $methods');
+      if (methods.isNotEmpty) {
+        throw FirebaseAuthException(
+          code: 'email-already-in-use',
+          message: 'An account already exists for $email. Please delete it from Firebase Console first.',
+        );
+      }
+    } catch (e) {
+      if (e is FirebaseAuthException) rethrow;
+      debugPrint('fetchSignInMethods error: $e');
+    }
+
+    debugPrint('Creating auth user for $email...');
+    UserCredential credential = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+    debugPrint('Auth user created: ${credential.user?.uid}');
+    if (credential.user == null) return null;
+    
+    final userModel = UserModel(
+      uid: credential.user!.uid,
+      name: name,
+      email: email,
+      role: role,
+      roomNumber: room,
+      hostelBlock: block,
+      phone: phone,
+      createdAt: DateTime.now(),
+    );
+    
+    try {
+      debugPrint('Writing to Firestore...');
+      await _firestore.collection('users').doc(userModel.uid).set(userModel.toMap());
+      debugPrint('Firestore write success!');
+    } catch (e) {
+      debugPrint('Firestore write failed: $e');
+      await credential.user!.delete();
+      debugPrint('Auth user deleted due to Firestore failure');
+      rethrow;
+    }
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    return userModel;
+  }
+
+  Future<void> forgotPassword(String email) async {
+    await _auth.sendPasswordResetEmail(email: email);
+  }
+
+  Future<void> signOut() async {
+    await _auth.signOut();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('isLoggedIn');
+  }
+
+  Future<UserModel?> getCurrentUser() async {
+    if (_auth.currentUser != null) {
+      DocumentSnapshot doc = await _firestore.collection('users').doc(_auth.currentUser!.uid).get();
+      if (doc.exists) {
+        return UserModel.fromMap(doc.data() as Map<String, dynamic>);
+      }
+    }
+    return null;
+  }
+}
+
+----- 7.2 FIRESTORE SERVICE - lib/services/firestore_service.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class FirestoreService {
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  FirebaseFirestore get db => _db;
+
+  Future<void> addDocument(String collection, Map<String, dynamic> data) async {
+    await _db.collection(collection).add(data);
+  }
+
+  Future<void> updateDocument(String collection, String docId, Map<String, dynamic> data) async {
+    await _db.collection(collection).doc(docId).update(data);
+  }
+
+  Future<void> deleteDocument(String collection, String docId) async {
+    await _db.collection(collection).doc(docId).delete();
+  }
+
+  Stream<QuerySnapshot> getCollectionStream(String collection) {
+    return _db.collection(collection).snapshots();
+  }
+
+  Stream<QuerySnapshot> getCollectionStreamOrdered(String collection, String orderBy, 
+                                                    {bool descending = false}) {
+    return _db.collection(collection).orderBy(orderBy, descending: descending).snapshots();
+  }
+  
+  Stream<QuerySnapshot> getCollectionStreamFiltered(String collection, String field, dynamic isEqualTo) {
+    return _db.collection(collection).where(field, isEqualTo: isEqualTo).snapshots();
+  }
+}
+
+----- 7.3 NOTIFICATION SERVICE - lib/services/notification_service.dart -----
+
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  final plugin = FlutterLocalNotificationsPlugin();
+  const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+  await plugin.initialize(const InitializationSettings(android: android));
+  await _showLocal(plugin, message);
+}
+
+Future<void> _showLocal(FlutterLocalNotificationsPlugin plugin, RemoteMessage message) async {
+  final notification = message.notification;
+  if (notification == null) return;
+  await plugin.show(
+    notification.hashCode,
+    notification.title,
+    notification.body,
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'hostelhub_channel', 'HostelHub Notifications',
+        channelDescription: 'Notifications for HostelHub app',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+    ),
+  );
+}
+
+class NotificationService {
+  static final NotificationService _instance = NotificationService._internal();
+  factory NotificationService() => _instance;
+  NotificationService._internal();
+
+  final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
+  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+
+  Future<void> initialize() async {
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    await _local.initialize(
+      const InitializationSettings(android: android),
+      onDidReceiveNotificationResponse: (details) {},
+    );
+
+    await _fcm.requestPermission(alert: true, badge: true, sound: true);
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    
+    FirebaseMessaging.onMessage.listen((message) {
+      _showLocal(_local, message);
+    });
+  }
+
+  /// Save FCM token to Firestore for targeting
+  Future<void> saveToken(String uid) async {
+    try {
+      final token = await _fcm.getToken();
+      if (token != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .update({'fcmToken': token});
+      }
+    } catch (e) {
+      debugPrint('FCM token save failed: $e');
+    }
+  }
+
+  /// Show local notification immediately
+  Future<void> showNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    await _local.show(
+      id,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'hostelhub_channel', 'HostelHub Notifications',
+          channelDescription: 'Notifications for HostelHub app',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      ),
+    );
+  }
+
+  /// Listen to Firestore for alerts, announcements, parcels and lost & found
+  void listenForAlerts(String uid) {
+    // Emergency alerts
+    FirebaseFirestore.instance
+        .collection('emergency_alerts')
+        .where('status', isEqualTo: 'active')
+        .snapshots()
+        .listen((snap) {
+      for (final change in snap.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data()!;
+          showNotification(
+            id: change.doc.id.hashCode,
+            title: '🚨 Emergency Alert',
+            body: data['message'] ?? 'Emergency declared in Room ${data['roomNumber']}',
+          );
+        }
+      }
+    });
+
+    // Announcements
+    FirebaseFirestore.instance
+        .collection('announcements')
+        .snapshots()
+        .listen((snap) {
+      for (final change in snap.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data()!;
+          showNotification(
+            id: change.doc.id.hashCode,
+            title: '📢 ${data['title'] ?? 'New Announcement'}',
+            body: data['body'] ?? '',
+          );
+        }
+      }
+    });
+
+    // Parcels for this student
+    FirebaseFirestore.instance
+        .collection('parcels')
+        .where('studentId', isEqualTo: uid)
+        .where('status', isEqualTo: 'arrived')
+        .snapshots()
+        .listen((snap) {
+      for (final change in snap.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data()!;
+          showNotification(
+            id: change.doc.id.hashCode,
+            title: '📦 Parcel Arrived!',
+            body: 'A parcel from ${data['senderName'] ?? 'unknown'} is waiting at the warden office.',
+          );
+        }
+      }
+    });
+  }
+}
+
+
+================================================================================
+8. PROVIDERS (State Management)
+================================================================================
+
+----- 8.1 AUTH PROVIDER - lib/providers/auth_provider.dart -----
+
+import 'package:flutter/material.dart';
+import '../models/user_model.dart';
+import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
+
+class AuthProvider extends ChangeNotifier {
+  final AuthService _authService;
+  final FirestoreService _firestoreService;
+
+  UserModel? _currentUserModel;
+  bool _isLoading = false;
+
+  AuthProvider(this._authService, this._firestoreService) {
+    _init();
+  }
+
+  UserModel? get currentUserModel => _currentUserModel;
+  Object? get user => _currentUserModel;
+  bool get isLoading => _isLoading;
+
+  Future<void> _onUserLoaded(UserModel? user) async {
+    if (user != null) {
+      await NotificationService().saveToken(user.uid);
+      NotificationService().listenForAlerts(user.uid);
+    }
+  }
+
+  Future<void> _init() async {
+    _currentUserModel = await _authService.getCurrentUser();
+    await _onUserLoaded(_currentUserModel);
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> login(String email, String password) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      _currentUserModel = await _authService.signIn(email, password);
+      await _onUserLoaded(_currentUserModel);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> register(String name, String email, String password,
+      String role, String room, String block, String phone) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      _currentUserModel = await _authService.register(
+          name, email, password, role, room, block, phone);
+      await _onUserLoaded(_currentUserModel);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProfile(String uid, Map<String, dynamic> data) async {
+    await _firestoreService.updateDocument('users', uid, data);
+    _currentUserModel = await _authService.getCurrentUser();
+    notifyListeners();
+  }
+
+  Future<void> forgotPassword(String email) async {
+    await _authService.forgotPassword(email);
+  }
+
+  Future<void> logout() async {
+    await _authService.signOut();
+    _currentUserModel = null;
+    notifyListeners();
+  }
+}
+
+----- 8.2 COMPLAINT PROVIDER - lib/providers/complaint_provider.dart -----
+
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/complaint_model.dart';
+import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
+
+class ComplaintProvider extends ChangeNotifier {
+  final FirestoreService _firestoreService;
+  final String _collection = 'complaints';
+
+  ComplaintProvider(this._firestoreService);
+
+  Stream<List<ComplaintModel>> getStudentComplaints(String studentId) {
+    return _firestoreService.db
+        .collection(_collection)
+        .where('studentId', isEqualTo: studentId)
+        .snapshots()
+        .map((snapshot) {
+      final docs = snapshot.docs
+          .map((doc) => ComplaintModel.fromMap(doc.data(), doc.id))
+          .toList();
+      docs.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return docs;
+    });
+  }
+
+  Stream<List<ComplaintModel>> getAllComplaints() {
+    return _firestoreService.db
+        .collection(_collection)
+        .snapshots()
+        .map((snapshot) {
+      final docs = snapshot.docs
+          .map((doc) => ComplaintModel.fromMap(doc.data(), doc.id))
+          .toList();
+      docs.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return docs;
+    });
+  }
+
+  Future<void> addComplaint(ComplaintModel complaint) async {
+    await _firestoreService.addDocument(_collection, complaint.toMap());
+  }
+
+  Future<void> updateComplaintStatus(String docId, String status, String studentId) async {
+    await _firestoreService.updateDocument(_collection, docId, {
+      'status': status,
+      'updatedAt': Timestamp.now(),
+    });
+
+    final label = status == 'in_progress' ? 'In Progress' : 'Resolved';
+    await NotificationService().showNotification(
+      id: docId.hashCode,
+      title: 'Complaint Update',
+      body: 'Your complaint is now $label',
+    );
+
+    await _firestoreService.db.collection('notifications').add({
+      'userId': studentId,
+      'title': 'Complaint Update',
+      'body': 'Your complaint status changed to $label',
+      'createdAt': Timestamp.now(),
+      'read': false,
+    });
+  }
+}
+
+----- 8.3 RESOURCE PROVIDER - lib/providers/resource_provider.dart -----
+
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/resource_model.dart';
+import '../services/firestore_service.dart';
+
+class ResourceProvider extends ChangeNotifier {
+  final FirestoreService _firestoreService;
+  final String _collection = 'resources';
+
+  ResourceProvider(this._firestoreService);
+
+  Stream<List<ResourceModel>> getResourcesStream() {
+    return _firestoreService.db
+        .collection(_collection)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => ResourceModel.fromMap(doc.data(), doc.id))
+            .toList());
+  }
+
+  Future<void> addRequest(ResourceModel resource) async {
+    await _firestoreService.addDocument(_collection, resource.toMap());
+  }
+
+  Future<void> offerItem(String docId, String offererId, String offererName,
+      String meetingLocation, DateTime meetingTime) async {
+    await _firestoreService.updateDocument(_collection, docId, {
+      'status': 'offered',
+      'offererId': offererId,
+      'offererName': offererName,
+      'meetingLocation': meetingLocation,
+      'meetingTime': Timestamp.fromDate(meetingTime),
+    });
+  }
+
+  Future<void> markFulfilled(String docId) async {
+    await _firestoreService.updateDocument(_collection, docId, {'status': 'fulfilled'});
+  }
+
+  Future<void> cancelRequest(String docId) async {
+    await _firestoreService.updateDocument(_collection, docId, {'status': 'cancelled'});
+  }
+}
+
+----- 8.4 SERVICE PROVIDER - lib/providers/service_provider.dart -----
+
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/service_request_model.dart';
+import '../services/firestore_service.dart';
+
+class ServiceProvider extends ChangeNotifier {
+  final FirestoreService _firestoreService;
+  final String _collection = 'service_requests';
+
+  ServiceProvider(this._firestoreService);
+
+  Stream<List<ServiceRequestModel>> getStudentServices(String studentId) {
+    return _firestoreService.db
+        .collection(_collection)
+        .where('studentId', isEqualTo: studentId)
+        .snapshots()
+        .map((snapshot) {
+          final docs = snapshot.docs
+              .map((doc) => ServiceRequestModel.fromMap(doc.data(), doc.id))
+              .toList();
+          docs.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return docs;
+        });
+  }
+
+  Future<void> assignService(String docId, String staff, DateTime scheduledTime) async {
+    await _firestoreService.updateDocument(_collection, docId, {
+      'status': 'assigned',
+      'assignedStaff': staff,
+      'scheduledTime': Timestamp.fromDate(scheduledTime),
+    });
+  }
+
+  Stream<List<ServiceRequestModel>> getAllServices() {
+    return _firestoreService.getCollectionStreamOrdered(_collection, 'createdAt', descending: true)
+        .map((snapshot) => snapshot.docs
+            .map((doc) => ServiceRequestModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+            .toList());
+  }
+
+  Future<void> addServiceRequest(ServiceRequestModel service) async {
+    await _firestoreService.addDocument(_collection, service.toMap());
+  }
+
+  Future<void> updateServiceStatus(String docId, String status) async {
+    await _firestoreService.updateDocument(_collection, docId, {
+      'status': status,
+    });
+  }
+}
+
+----- 8.5 PARCEL PROVIDER - lib/providers/parcel_provider.dart -----
+
+import 'package:flutter/material.dart';
+import '../models/parcel_model.dart';
+import '../services/firestore_service.dart';
+
+class ParcelProvider extends ChangeNotifier {
+  final FirestoreService _firestoreService;
+  final String _collection = 'parcels';
+
+  ParcelProvider(this._firestoreService);
+
+  Stream<List<ParcelModel>> getStudentParcels(String studentId) {
+    return _firestoreService.db
+        .collection(_collection)
+        .where('studentId', isEqualTo: studentId)
+        .snapshots()
+        .map((snapshot) {
+          final docs = snapshot.docs
+              .map((doc) => ParcelModel.fromMap(doc.data(), doc.id))
+              .toList();
+          docs.sort((a, b) => b.arrivedAt.compareTo(a.arrivedAt));
+          return docs;
+        });
+  }
+
+  Stream<List<ParcelModel>> getAllParcels() {
+    return _firestoreService.getCollectionStreamOrdered(_collection, 'arrivedAt', descending: true)
+        .map((snapshot) => snapshot.docs
+            .map((doc) => ParcelModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+            .toList());
+  }
+
+  Future<void> addParcel(ParcelModel parcel) async {
+    await _firestoreService.addDocument(_collection, parcel.toMap());
+  }
+
+  Future<void> markAsCollected(String docId) async {
+    await _firestoreService.updateDocument(_collection, docId, {
+      'status': 'collected',
+      'collectedAt': DateTime.now(),
+    });
+  }
+}
+
+----- 8.6 LOST & FOUND PROVIDER - lib/providers/lost_found_provider.dart -----
+
+import 'package:flutter/material.dart';
+import '../models/lost_found_model.dart';
+import '../services/firestore_service.dart';
+
+class LostFoundProvider extends ChangeNotifier {
+  final FirestoreService _firestoreService;
+  final String _collection = 'lost_found';
+
+  LostFoundProvider(this._firestoreService);
+
+  Stream<List<LostFoundModel>> getItemsStream() {
+    return _firestoreService.db
+        .collection(_collection)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => LostFoundModel.fromMap(doc.data(), doc.id))
+            .toList());
+  }
+
+  Future<void> addItem(LostFoundModel item) async {
+    await _firestoreService.addDocument(_collection, item.toMap());
+  }
+
+  Future<void> markWithWarden(String docId, String wardenNote) async {
+    await _firestoreService.updateDocument(_collection, docId, {
+      'status': 'with_warden',
+      'wardenNote': wardenNote,
+    });
+  }
+
+  Future<void> markCollected(String docId) async {
+    await _firestoreService.updateDocument(_collection, docId, {
+      'status': 'collected',
+    });
+  }
+
+  Future<void> deleteItem(String docId) async {
+    await _firestoreService.db.collection(_collection).doc(docId).delete();
+  }
+}
+
+----- 8.7 ANNOUNCEMENT PROVIDER - lib/providers/announcement_provider.dart -----
+
+import 'package:flutter/material.dart';
+import '../models/announcement_model.dart';
+import '../services/firestore_service.dart';
+
+class AnnouncementProvider extends ChangeNotifier {
+  final FirestoreService _firestoreService;
+  final String _collection = 'announcements';
+
+  AnnouncementProvider(this._firestoreService);
+
+  Stream<List<AnnouncementModel>> getAnnouncementsStream() {
+    return _firestoreService.getCollectionStreamOrdered(_collection, 'createdAt', descending: true)
+        .map((snapshot) => snapshot.docs
+            .map((doc) => AnnouncementModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+            .toList());
+  }
+
+  Future<void> addAnnouncement(AnnouncementModel announcement) async {
+    await _firestoreService.addDocument(_collection, announcement.toMap());
+  }
+
+  Future<void> deleteAnnouncement(String docId) async {
+    await _firestoreService.deleteDocument(_collection, docId);
+  }
+}
+
+----- 8.8 MEDICAL PROVIDER - lib/providers/medical_provider.dart -----
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import '../models/medical_visit_model.dart';
+
+class MedicalProvider extends ChangeNotifier {
+  final _col = FirebaseFirestore.instance.collection('medical_visits');
+
+  Stream<List<MedicalVisitModel>> getAllVisitsStream() {
+    return _col.orderBy('createdAt', descending: true).snapshots().map(
+          (s) => s.docs.map((d) => MedicalVisitModel.fromMap(d.data(), d.id)).toList(),
+        );
+  }
+
+  Stream<List<MedicalVisitModel>> getStudentVisitsStream(String studentId) {
+    return _col.where('studentId', isEqualTo: studentId).snapshots().map((s) {
+      final list = s.docs.map((d) => MedicalVisitModel.fromMap(d.data(), d.id)).toList();
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    });
+  }
+
+  Future<void> acceptVisit(String id, String instruction, DateTime appointmentTime) async {
+    await _col.doc(id).update({
+      'status': 'accepted',
+      'doctorInstruction': instruction,
+      'appointmentTime': Timestamp.fromDate(appointmentTime),
+    });
+  }
+
+  Future<void> completeVisit(String id, String instruction) async {
+    await _col.doc(id).update({
+      'status': 'completed',
+      'doctorInstruction': instruction,
+    });
+  }
+
+  Future<void> updateInstruction(String id, String instruction, DateTime? appointmentTime) async {
+    final data = <String, dynamic>{'doctorInstruction': instruction};
+    if (appointmentTime != null) data['appointmentTime'] = Timestamp.fromDate(appointmentTime);
+    await _col.doc(id).update(data);
+  }
+}
+
+
+================================================================================
+9. SYSTEM OVERVIEW & KEY INFORMATION
+================================================================================
+
+PROJECT NAME: HostelHub
+TYPE: Flutter Mobile Application
+BACKEND: Firebase (Cloud Firestore, Authentication, Messaging, Storage)
+STATE MANAGEMENT: Provider Pattern
+NAVIGATION: Go Router
+
+FEATURES:
+1. Multi-role authentication (Student, Warden, Admin, Doctor)
+2. Complaint management system
+3. Resource sharing platform
+4. Service request management
+5. Parcel tracking system
+6. Lost and Found reporting
+7. Medical appointment scheduling
+8. Emergency alert system
+9. Announcements
+10. Real-time notifications
+
+FIREBASE COLLECTIONS:
+- users: User profiles with role-based access
+- complaints: Complaint tickets with chat support
+- resources: Resource sharing requests
+- service_requests: Maintenance/service requests
+- parcels: Parcel tracking
+- lost_found: Lost and found items
+- announcements: Hostel announcements
+- emergency_alerts: Emergency notifications
+- medical_visits: Medical appointment requests
+- notifications: User notification history
+
+KEY DESIGN PATTERNS:
+- MVVM Architecture: Models → Providers → UI
+- Provider Pattern: State management with ChangeNotifier
+- Stream-based: Real-time Firestore updates via Streams
+- Singleton Pattern: NotificationService
+- Error Boundary: Global error handling
+
+THEME:
+- Aurora Design System
+- Dark theme with gradient accents
+- Colors: Pink (F472B6), Indigo (818CF8), Green (34D399), Blue (60A5FA)
+- Font: Google Inter
+
+ROLE-BASED ROUTING:
+- Student: Dashboard, Complaints, Resources, Services, Medical, Emergency, Lost&Found, Announcements, Parcels
+- Warden: Dashboard, Manage Complaints, Manage Services, Post Announcements, Emergency Alerts
+- Doctor: Dashboard, Medical Visits Management
+- Admin: Dashboard, Manage Users, Reports
+
+================================================================================
+                          END OF DOCUMENTATION
+================================================================================

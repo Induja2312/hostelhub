@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.hostelhub.hostelhub_new"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.hostelhub.hostelhub_new"
-        minSdk = flutter.minSdkVersion
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

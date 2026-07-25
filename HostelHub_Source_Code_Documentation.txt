@@ -1,0 +1,695 @@
+HostelHub - Smart Hostel Management System
+Source Code Documentation
+==========================================
+
+PROJECT OVERVIEW
+----------------
+HostelHub is a Flutter-based mobile application for managing hostel operations.
+It supports four roles: Student, Warden, Doctor, and Admin.
+Backend: Firebase (Auth + Firestore + Messaging)
+
+TECH STACK
+----------
+- Flutter (Dart)
+- Firebase Auth, Firestore, Cloud Messaging
+- Provider (state management)
+- GoRouter (navigation)
+- flutter_local_notifications
+- google_fonts, intl, image_picker, url_launcher
+
+==========================================
+FILE: pubspec.yaml
+==========================================
+
+name: hostelhub
+description: "Smart Hostel Management System"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
+  firebase_messaging: ^15.1.3
+  provider: ^6.1.1
+  go_router: ^13.1.0
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+  uuid: ^4.3.3
+  flutter_local_notifications: ^17.2.4
+  cached_network_image: ^3.3.1
+  url_launcher: ^6.3.0
+  google_fonts: ^6.1.0
+  image_picker: ^1.1.2
+  flutter_image_compress: ^2.3.0
+  connectivity_plus: ^6.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+
+==========================================
+FILE: lib/main.dart
+==========================================
+
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
+import 'app.dart';
+import 'firebase_options.dart';
+import 'providers/auth_provider.dart';
+import 'providers/complaint_provider.dart';
+import 'providers/resource_provider.dart';
+import 'providers/service_provider.dart';
+import 'providers/lost_found_provider.dart';
+import 'providers/announcement_provider.dart';
+import 'providers/parcel_provider.dart';
+import 'services/auth_service.dart';
+import 'services/firestore_service.dart';
+import 'services/notification_service.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService().initialize();
+
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider(AuthService(), FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ComplaintProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ResourceProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ServiceProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => LostFoundProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => AnnouncementProvider(FirestoreService())),
+        ChangeNotifierProvider(create: (_) => ParcelProvider(FirestoreService())),
+      ],
+      child: const HostelHubApp(),
+    ),
+  );
+}
+
+
+==========================================
+FILE: lib/app.dart  (Router & Navigation)
+==========================================
+
+- Uses GoRouter with refreshListenable for auth-based redirects
+- Routes: login, register, student dashboard, warden dashboard,
+  doctor dashboard, admin dashboard, and all sub-screens
+- Animated page transitions (fade + slide)
+- Role-based redirect: student -> /student, warden -> /warden,
+  doctor -> /doctor, admin -> /admin
+
+
+==========================================
+SECTION: MODELS
+==========================================
+
+------------------------------------------
+FILE: lib/models/user_model.dart
+------------------------------------------
+
+Fields:
+  uid, name, email, role, roomNumber, hostelBlock, phone, createdAt
+
+Roles: "student" | "warden" | "doctor" | "admin"
+
+class UserModel {
+  final String uid;
+  final String name;
+  final String email;
+  final String role;
+  final String roomNumber;
+  final String hostelBlock;
+  final String phone;
+  final DateTime createdAt;
+
+  factory UserModel.fromMap(Map<String, dynamic> map) { ... }
+  Map<String, dynamic> toMap() { ... }
+}
+
+
+------------------------------------------
+FILE: lib/models/complaint_model.dart
+------------------------------------------
+
+Fields:
+  id, studentId, studentName, category, description,
+  status, assignedTo, createdAt, updatedAt
+
+Status values: "pending" | "in_progress" | "resolved"
+Categories: Electricity, Water, WiFi, Furniture, Plumbing,
+            Cleanliness, Pest Control, Other
+
+class ComplaintModel {
+  final String id, studentId, studentName, category,
+               description, status, assignedTo;
+  final DateTime createdAt, updatedAt;
+
+  factory ComplaintModel.fromMap(Map<String, dynamic> map, String id) { ... }
+  Map<String, dynamic> toMap() { ... }
+}
+
+
+------------------------------------------
+FILE: lib/models/resource_model.dart
+------------------------------------------
+
+Fields:
+  id, requesterId, requesterName, itemName, description,
+  neededBy, status, offererId?, offererName?,
+  meetingLocation?, meetingTime?, createdAt
+
+Status values: "open" | "offered" | "fulfilled"
+
+Flow:
+  1. Student posts a request with item name + needed-by time
+  2. Another student sees it and offers with meeting location + time
+  3. Requester marks as received (fulfilled)
+
+class ResourceModel {
+  final String id, requesterId, requesterName, itemName, description, status;
+  final DateTime neededBy, createdAt;
+  final String? offererId, offererName, meetingLocation;
+  final DateTime? meetingTime;
+
+  factory ResourceModel.fromMap(Map<String, dynamic> map, String id) { ... }
+  Map<String, dynamic> toMap() { ... }
+}
+
+
+------------------------------------------
+FILE: lib/models/announcement_model.dart
+------------------------------------------
+
+Fields:
+  id, postedBy, postedByName, title, body,
+  priority, imageUrl, createdAt
+
+Priority: "normal" | "urgent"
+
+
+------------------------------------------
+FILE: lib/models/parcel_model.dart
+------------------------------------------
+
+Fields:
+  id, studentId, studentName, roomNumber, senderName,
+  courierName, trackingNumber, status, imageUrl,
+  arrivedAt, collectedAt?
+
+Status: "arrived" | "collected"
+
+
+------------------------------------------
+FILE: lib/models/lost_found_model.dart
+------------------------------------------
+
+Fields:
+  id, reportedBy, reporterName, contactInfo, category,
+  itemName, description, location, status, imageUrl,
+  dateLost?, wardenNote?, createdAt
+
+Status: "open" | "with_warden" | "collected"
+
+
+------------------------------------------
+FILE: lib/models/service_request_model.dart
+------------------------------------------
+
+Fields:
+  id, studentId, studentName, roomNumber, serviceType,
+  description, status, assignedStaff, scheduledTime?, createdAt
+
+Status: "pending" | "assigned" | "completed" | "cancelled"
+Service types: Cleaning, Water, Electrical, Plumbing,
+               Furniture, WiFi, Pest Control, Other
+
+
+==========================================
+SECTION: SERVICES
+==========================================
+
+------------------------------------------
+FILE: lib/services/auth_service.dart
+------------------------------------------
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/user_model.dart';
+
+class AuthService {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // Sign in with email/password, fetch user doc from Firestore
+  // Falls back to minimal UserModel if Firestore read fails
+  Future<UserModel?> signIn(String email, String password) async { ... }
+
+  // Create Firebase Auth user, write UserModel to Firestore
+  // Deletes auth user if Firestore write fails (atomic-like)
+  Future<UserModel?> register(String name, String email, String password,
+      String role, String room, String block, String phone) async { ... }
+
+  Future<void> forgotPassword(String email) async {
+    await _auth.sendPasswordResetEmail(email: email);
+  }
+
+  Future<void> signOut() async { ... }
+
+  Future<UserModel?> getCurrentUser() async { ... }
+}
+
+
+------------------------------------------
+FILE: lib/services/firestore_service.dart
+------------------------------------------
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class FirestoreService {
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  FirebaseFirestore get db => _db;
+
+  Future<void> addDocument(String collection, Map<String, dynamic> data);
+  Future<void> updateDocument(String collection, String docId, Map<String, dynamic> data);
+  Future<void> deleteDocument(String collection, String docId);
+  Stream<QuerySnapshot> getCollectionStream(String collection);
+  Stream<QuerySnapshot> getCollectionStreamOrdered(String collection, String orderBy, {bool descending});
+  Stream<QuerySnapshot> getCollectionStreamFiltered(String collection, String field, dynamic isEqualTo);
+}
+
+
+------------------------------------------
+FILE: lib/services/notification_service.dart
+------------------------------------------
+
+Handles:
+  - Local notifications (flutter_local_notifications)
+  - Firebase Cloud Messaging (FCM)
+  - Background message handler
+  - Firestore listeners for:
+      * Emergency alerts
+      * New announcements
+      * Parcel arrivals (per student)
+      * Lost item found (per student)
+      * Complaint status updates (per student)
+
+Key methods:
+  Future<void> initialize()
+  Future<void> saveToken(String uid)
+  Future<void> showNotification({int id, String title, String body})
+  void listenForAlerts(String uid)
+  Future<void> cancelAll()
+
+
+==========================================
+SECTION: PROVIDERS (State Management)
+==========================================
+
+------------------------------------------
+FILE: lib/providers/auth_provider.dart
+------------------------------------------
+
+class AuthProvider extends ChangeNotifier {
+  UserModel? _currentUserModel;
+  bool _isLoading = false;  // false by default so login button is enabled
+
+  // Initializes by fetching current Firebase user on app start
+  Future<void> _init() async { ... }
+
+  Future<void> login(String email, String password) async { ... }
+  Future<void> register(String name, String email, String password,
+      String role, String room, String block, String phone) async { ... }
+  Future<void> updateProfile(String uid, Map<String, dynamic> data) async { ... }
+  Future<void> forgotPassword(String email) async { ... }
+  Future<void> logout() async { ... }
+
+  // After login/register: saves FCM token + starts notification listeners
+  Future<void> _onUserLoaded(UserModel? user) async { ... }
+}
+
+
+------------------------------------------
+FILE: lib/providers/complaint_provider.dart
+------------------------------------------
+
+Key methods:
+  Stream<List<ComplaintModel>> getStudentComplaints(String studentId)
+    - Filters by studentId, sorts client-side (avoids Firestore composite index)
+
+  Stream<List<ComplaintModel>> getAllComplaints()
+    - For warden/admin use
+
+  Future<void> addComplaint(ComplaintModel complaint)
+
+  Future<void> updateComplaintStatus(String docId, String status, String studentId)
+    - Updates status + sends local notification + writes notification doc
+
+  Stream<List<ComplaintMessage>> getMessages(String complaintId)
+    - Chat subcollection: complaints/{id}/messages
+
+  Future<void> sendMessage(String complaintId, ComplaintMessage message)
+
+
+------------------------------------------
+FILE: lib/providers/resource_provider.dart
+------------------------------------------
+
+Key methods:
+  Stream<List<ResourceModel>> getResourcesStream()
+    - Ordered by createdAt descending
+
+  Future<void> addRequest(ResourceModel resource)
+    - Student posts a new item request
+
+  Future<void> offerItem(String docId, String offererId, String offererName,
+      String meetingLocation, DateTime meetingTime)
+    - Another student offers to share with meeting details
+
+  Future<void> markFulfilled(String docId)
+    - Requester confirms they received the item
+
+  Future<void> cancelRequest(String docId)
+
+
+------------------------------------------
+FILE: lib/providers/announcement_provider.dart
+------------------------------------------
+
+  Stream<List<AnnouncementModel>> getAnnouncementsStream()
+  Future<void> addAnnouncement(AnnouncementModel announcement)
+  Future<void> deleteAnnouncement(String docId)
+
+
+------------------------------------------
+FILE: lib/providers/parcel_provider.dart
+------------------------------------------
+
+  Stream<List<ParcelModel>> getStudentParcels(String studentId)
+  Stream<List<ParcelModel>> getAllParcels()
+  Future<void> addParcel(ParcelModel parcel)
+  Future<void> markAsCollected(String docId)
+
+
+------------------------------------------
+FILE: lib/providers/lost_found_provider.dart
+------------------------------------------
+
+  Stream<List<LostFoundModel>> getItemsStream()
+  Future<void> addItem(LostFoundModel item)
+  Future<void> markWithWarden(String docId, String wardenNote)
+  Future<void> markCollected(String docId)
+  Future<void> deleteItem(String docId)
+
+
+------------------------------------------
+FILE: lib/providers/service_provider.dart
+------------------------------------------
+
+  Stream<List<ServiceRequestModel>> getStudentServices(String studentId)
+  Stream<List<ServiceRequestModel>> getAllServices()
+  Future<void> addServiceRequest(ServiceRequestModel service)
+  Future<void> assignService(String docId, String staff, DateTime scheduledTime)
+  Future<void> updateServiceStatus(String docId, String status)
+
+
+==========================================
+SECTION: SCREENS - AUTH
+==========================================
+
+------------------------------------------
+FILE: lib/screens/auth/login_screen.dart
+------------------------------------------
+
+- Email + password form with validation
+- Role dropdown (student / warden / admin)
+- Shows red SnackBar on error
+- GoRouter redirect handles post-login navigation automatically
+- Links to register and forgot password screens
+
+
+------------------------------------------
+FILE: lib/screens/auth/register_screen.dart
+------------------------------------------
+
+Fields: Full Name, Email, Password, Phone,
+        Hostel Type (Boys/Girls), Block, Room, Role
+
+Validations:
+  - Email uniqueness check against Firestore
+  - Phone uniqueness check
+  - Room capacity check
+  - All required fields
+
+UI: Dark aurora-themed background with glass card form
+
+
+==========================================
+SECTION: SCREENS - STUDENT
+==========================================
+
+------------------------------------------
+FILE: lib/screens/student/student_dashboard.dart
+------------------------------------------
+
+Bottom navigation: Home | Complaints | Resources
+
+Home tab features:
+  - Welcome card with student name
+  - 2-column animated grid of 6 modules:
+      * Announcements  (indigo)
+      * Parcels        (teal)
+      * Emergency      (red)
+      * Medical Help   (pink)
+      * Lost & Found   (amber)
+      * Services       (blue)
+  - Each card animates in with scale + opacity (easeOutBack)
+  - Glass AppBar with blur effect
+  - Profile icon in AppBar
+
+
+------------------------------------------
+FILE: lib/screens/student/complaint_screen.dart
+------------------------------------------
+
+Features:
+  - Search bar + status filter dropdown
+  - Animated list of complaints with color-coded status chips
+  - Status colors: pending=orange, in_progress=blue, resolved=green
+  - "Chat" button on each complaint opens a bottom sheet chat
+  - Chat uses Firestore subcollection: complaints/{id}/messages
+  - New complaint via bottom sheet with category dropdown + description
+
+Complaint categories:
+  Electricity, Water, WiFi, Furniture, Plumbing,
+  Cleanliness, Pest Control, Other
+
+
+------------------------------------------
+FILE: lib/screens/student/resource_sharing_screen.dart
+------------------------------------------
+
+FLOW (Request-First Model):
+  1. Student taps "Request Item" FAB
+  2. Fills: item name, description (optional), needed-by date+time
+  3. Request appears in "Open Requests" tab for all other students
+  4. Another student taps "I have this"
+  5. Fills: meeting location + meeting date+time
+  6. Requester sees offer details (location, time, offerer name)
+  7. Requester taps "Mark as Received" to close the request
+
+Tabs:
+  - Open Requests: shows all open requests from other students
+  - My Requests: shows your own requests with their status
+
+Status chips: OPEN (blue) | OFFERED (orange) | FULFILLED (green)
+
+
+------------------------------------------
+FILE: lib/screens/student/announcements_screen.dart
+------------------------------------------
+
+- Streams announcements ordered by date
+- Urgent announcements have red border + "URGENT" badge
+- Animated list (fade + slide)
+- Shows poster name, date, optional image
+
+
+------------------------------------------
+FILE: lib/screens/student/parcel_screen.dart
+------------------------------------------
+
+- Shows student's parcels from Firestore
+- Displays courier name, tracking number, arrival date
+- Status badge: ARRIVED (teal) | COLLECTED (grey)
+- Optional parcel photo
+
+
+------------------------------------------
+FILE: lib/screens/student/service_request_screen.dart
+------------------------------------------
+
+Predefined service types:
+  Cleaning-Bathroom, Cleaning-Room, Water Service,
+  Electrical Repair, Plumbing Repair, Furniture Repair,
+  Internet/WiFi Issue, Pest Control, Other
+
+Features:
+  - Bottom sheet form with service type dropdown
+  - Shows assigned staff + scheduled time when status = "assigned"
+  - Cancel button for pending requests
+  - Animated list with status chips
+
+
+------------------------------------------
+FILE: lib/screens/student/lost_found_screen.dart
+------------------------------------------
+
+Tabs: All Reports | My Reports
+Search + category filter
+
+Report form fields:
+  Category, Item Name, Last Seen Location, Date Lost (optional),
+  Description (optional), Contact Info, Photo (camera/gallery)
+
+Item card shows:
+  - Status: Searching (blue) | With Warden (orange) | Collected (green)
+  - Location, reporter name, date lost, description, photo
+  - "With Warden" banner with warden note when applicable
+  - Contact info visible to other students (not owner)
+
+Image handling:
+  - Compressed to <700KB using flutter_image_compress
+  - Stored as base64 in Firestore
+
+
+------------------------------------------
+FILE: lib/screens/student/emergency_screen.dart
+------------------------------------------
+
+- Long-press SOS button sends emergency alert to Firestore
+- Alert document written to "emergency_alerts" collection
+- Wardens receive real-time notification
+- Pulsing animation on SOS button
+
+
+------------------------------------------
+FILE: lib/screens/student/medical_help_screen.dart
+------------------------------------------
+
+Tabs:
+  1. Contacts - Campus Hospital, On-Call Doctor, Pharmacy, Ambulance
+     (tap to dial via url_launcher)
+
+  2. Request Visit - Form with:
+     - Primary symptom dropdown (12 options + Other)
+     - Additional notes
+     - Urgency level: Normal | Urgent | Critical (SegmentedButton)
+     - Writes to "medical_visits" Firestore collection
+
+  3. My Requests - Shows student's medical visit requests
+     - Displays doctor's instructions when provided
+     - Shows appointment time when scheduled
+
+
+==========================================
+SECTION: FIRESTORE COLLECTIONS
+==========================================
+
+Collection         | Key Fields
+-------------------|--------------------------------------------------
+users              | uid, name, email, role, roomNumber, hostelBlock,
+                   | phone, createdAt, fcmToken
+complaints         | studentId, category, description, status,
+                   | assignedTo, createdAt, updatedAt
+complaints/{id}/   |
+  messages         | senderId, senderName, senderRole, text, sentAt
+resources          | requesterId, itemName, neededBy, status,
+                   | offererId, meetingLocation, meetingTime
+announcements      | postedBy, title, body, priority, imageUrl, createdAt
+parcels            | studentId, courierName, trackingNumber, status,
+                   | arrivedAt, collectedAt
+lost_found         | reportedBy, itemName, category, location, status,
+                   | imageUrl, wardenNote
+service_requests   | studentId, serviceType, description, status,
+                   | assignedStaff, scheduledTime
+emergency_alerts   | sentBy, senderName, roomNumber, message, status
+medical_visits     | studentId, symptoms, urgency, status,
+                   | doctorInstruction, appointmentTime
+notifications      | userId, title, body, createdAt, read
+
+
+==========================================
+SECTION: FIRESTORE SECURITY RULES
+==========================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+
+Note: Tighten rules per collection for production use.
+
+
+==========================================
+SECTION: KEY DESIGN DECISIONS
+==========================================
+
+1. ROUTER PATTERN
+   GoRouter is created once in initState (StatefulWidget) with
+   refreshListenable: authProvider so redirects fire on auth changes.
+   Previously recreating router in build() caused login to not navigate.
+
+2. ISLOADING INITIAL VALUE
+   AuthProvider._isLoading starts as false so the login button is
+   immediately interactive. It only becomes true during active
+   login/register calls.
+
+3. FIRESTORE QUERY ORDERING
+   Queries using both .where() and .orderBy() require a Firestore
+   composite index. To avoid this, we sort client-side after fetching:
+     docs.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+4. RESOURCE SHARING FLOW
+   Request-first model: students request items they need (with a
+   needed-by deadline), other students offer to share with a specific
+   meeting location and time. This is more practical than a
+   "post what you have" model.
+
+5. COMPLAINT CHAT
+   Each complaint has a messages subcollection enabling direct
+   student-warden communication per complaint thread.
+
+6. IMAGE STORAGE
+   Images are compressed and stored as base64 strings in Firestore
+   (no Firebase Storage required). Limited to <700KB per image.
+
+7. NOTIFICATION ARCHITECTURE
+   - FCM token saved to user doc on login
+   - Firestore listeners trigger local notifications for:
+     parcels, announcements, emergency alerts, lost items, complaints
+   - Works when app is in foreground; background handled by FCM
+
+
+==========================================
+END OF DOCUMENTATION
+==========================================

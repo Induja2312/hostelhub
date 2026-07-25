@@ -6,6 +6,7 @@ import '../../core/constants/app_routes.dart';
 import '../../core/utils/validators.dart';
 import '../../core/widgets/custom_button.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/ecampus_auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -19,6 +20,54 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   String _role = 'student';
+
+  bool _ecampusLoading = false;
+
+  Future<void> _ecampusLogin() async {
+    final rollCtrl = TextEditingController();
+    final dobCtrl = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('eCampus Login'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: rollCtrl,
+              decoration: const InputDecoration(labelText: 'Roll Number'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: dobCtrl,
+              decoration: const InputDecoration(labelText: 'Password'),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Login')),
+        ],
+      ),
+    );
+    if (result != true) return;
+    setState(() => _ecampusLoading = true);
+    try {
+      await ECampusAuthService().login(rollCtrl.text.trim(), dobCtrl.text.trim());
+      if (mounted) {
+        await context.read<AuthProvider>().ecampusLogin(rollCtrl.text.trim(), dobCtrl.text.trim());
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _ecampusLoading = false);
+    }
+  }
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
@@ -89,6 +138,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextButton(
                     onPressed: () => context.push(AppRoutes.register),
                     child: const Text("Don't have an account? Register"),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _ecampusLoading ? null : _ecampusLogin,
+                    icon: _ecampusLoading
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.school_outlined),
+                    label: const Text('Login with eCampus'),
                   ),
                 ],
               ),

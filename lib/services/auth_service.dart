@@ -9,7 +9,6 @@ class AuthService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   AuthService() {
-    // Force reCAPTCHA verification instead of Google Play Services
     _auth.setSettings(appVerificationDisabledForTesting: true);
   }
 
@@ -28,7 +27,6 @@ class AuthService {
     } catch (e) {
       debugPrint('Firestore read failed: $e');
     }
-    // Firestore failed but auth succeeded — return minimal user so router can redirect
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isLoggedIn', true);
     return UserModel(
@@ -43,8 +41,54 @@ class AuthService {
     );
   }
 
+  /// Called after eCampus has already verified the credentials.
+  /// Signs into Firebase (creating account if needed) so all Firestore queries work.
+  Future<UserModel?> signInWithECampus(String rollNo, String ecampusPassword) async {
+    final email = '${rollNo.toLowerCase()}@psgtech.ac.in';
+
+    // First try signing in — covers both existing accounts and wrong password
+    try {
+      return await signIn(email, ecampusPassword);
+    } on FirebaseAuthException catch (signInError) {
+      // Account doesn't exist — create it
+      if (signInError.code == 'user-not-found') {
+        final credential = await _auth.createUserWithEmailAndPassword(
+          email: email, password: ecampusPassword);
+        if (credential.user == null) return null;
+        final userModel = UserModel(
+          uid: credential.user!.uid,
+          name: rollNo.toUpperCase(),
+          email: email,
+          role: 'student',
+          roomNumber: '',
+          hostelBlock: '',
+          phone: '',
+          createdAt: DateTime.now(),
+        );
+        await _firestore.collection('users').doc(userModel.uid).set(userModel.toMap());
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isLoggedIn', true);
+        return userModel;
+      }
+
+      // Account exists but with a different password — delete and recreate
+      if (signInError.code == 'wrong-password' ||
+          signInError.code == 'invalid-credential' ||
+          signInError.code == 'INVALID_LOGIN_CREDENTIALS' ||
+          signInError.code == 'email-already-in-use') {
+        // Get the existing uid by signing in with a temp approach is not possible.
+        // Only option: delete via Admin SDK (not available free tier).
+        // Throw a clear message asking user to contact admin or use email login.
+        throw Exception(
+          'An account with $email already exists with a different password.\n'
+          'Please login using your email and password instead, or contact admin to reset.');
+      }
+
+      rethrow;
+    }
+  }
+
   Future<UserModel?> register(String name, String email, String password, String role, String room, String block, String phone) async {
-    // Check if auth user already exists by trying to fetch sign-in methods
     try {
       final methods = await _auth.fetchSignInMethodsForEmail(email);
       debugPrint('Existing sign-in methods for $email: $methods');
@@ -80,7 +124,6 @@ class AuthService {
     } catch (e) {
       debugPrint('Firestore write failed: $e');
       await credential.user!.delete();
-      debugPrint('Auth user deleted due to Firestore failure');
       rethrow;
     }
     final prefs = await SharedPreferences.getInstance();

@@ -59,6 +59,18 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> ecampusLogin(String rollNo, String password) async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      _currentUserModel = await _authService.signInWithECampus(rollNo, password);
+      await _onUserLoaded(_currentUserModel);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> updateProfile(String uid, Map<String, dynamic> data) async {
     await _firestoreService.updateDocument('users', uid, data);
     _currentUserModel = await _authService.getCurrentUser();
