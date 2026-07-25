@@ -11,7 +11,10 @@ class ECampusAuthService {
       headers: {'User-Agent': 'Mozilla/5.0'},
     );
 
-    final cookie = _extractCookie(getResp.headers['set-cookie'] ?? '');
+    // Build a cookie jar from all Set-Cookie headers.
+    // Dart's http package may merge multiple Set-Cookie headers into one
+    // comma-separated string, so we split on ',' boundaries between cookies.
+    final cookie = _buildCookieJar(getResp.headers);
     final csrfToken = _extractCsrfToken(getResp.body);
 
     if (cookie.isEmpty || csrfToken.isEmpty) {
@@ -37,6 +40,9 @@ class ECampusAuthService {
     if (postResp.statusCode == 302) return;
 
     if (postResp.statusCode == 200) {
+      // NOTE: This heuristic is fragile — it infers failure from the presence
+      // of login-form markers in the response body. If eCampus changes its HTML
+      // structure this check may produce false positives or false negatives.
       final body = postResp.body.toLowerCase();
       if (!body.contains('student login') && !body.contains('rollno')) return;
       throw Exception('Invalid roll number or password');
@@ -45,9 +51,27 @@ class ECampusAuthService {
     throw Exception('eCampus login failed (${postResp.statusCode})');
   }
 
-  String _extractCookie(String setCookieHeader) {
-    final match = RegExp(r'(\.AspNetCore\.Antiforgery\.[^=]+=\S+?)(?:;|$)').firstMatch(setCookieHeader);
-    return match?.group(1) ?? '';
+  /// Builds a cookie string from response headers, handling the case where
+  /// Dart's http package collapses multiple Set-Cookie headers into one string.
+  String _buildCookieJar(Map<String, String> headers) {
+    final raw = headers['set-cookie'] ?? '';
+    if (raw.isEmpty) return '';
+
+    final jar = <String, String>{};
+
+    // Split on cookie boundaries: each cookie ends with a known attribute
+    // pattern. We split on ', ' only when followed by a cookie name= pattern.
+    final cookieEntries = raw.split(RegExp(r',\s*(?=[^;,]+=)'));
+    for (final entry in cookieEntries) {
+      final nameValue = entry.split(';').first.trim();
+      final eqIdx = nameValue.indexOf('=');
+      if (eqIdx == -1) continue;
+      final name = nameValue.substring(0, eqIdx).trim();
+      final value = nameValue.substring(eqIdx + 1).trim();
+      jar[name] = value;
+    }
+
+    return jar.entries.map((e) => '${e.key}=${e.value}').join('; ');
   }
 
   String _extractCsrfToken(String html) {
