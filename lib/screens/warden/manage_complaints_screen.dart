@@ -247,17 +247,14 @@ class ManageComplaintsScreen extends StatelessWidget {
                       const Icon(Icons.person_outline,
                           color: Colors.white38, size: 14),
                       const SizedBox(width: 4),
-                      Text(c.studentName,
+                      Expanded(
+                        child: Text(
+                          c.studentName.isNotEmpty ? c.studentName : 'Student',
+                          overflow: TextOverflow.ellipsis,
                           style: GoogleFonts.inter(
                               color: Colors.white54, fontSize: 12)),
-                      const SizedBox(width: 12),
-                      const Icon(Icons.badge_outlined,
-                          color: Colors.white38, size: 14),
-                      const SizedBox(width: 4),
-                      Text(c.studentId,
-                          style: GoogleFonts.inter(
-                              color: Colors.white54, fontSize: 12)),
-                      const Spacer(),
+                      ),
+                      const SizedBox(width: 8),
                       Text(Helpers.formatDate(c.createdAt),
                           style: GoogleFonts.inter(
                               color: Colors.white38, fontSize: 11)),
