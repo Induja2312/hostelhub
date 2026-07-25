@@ -35,12 +35,6 @@ class Validators {
     if (!trimmed.endsWith('@psgtech.ac.in')) {
       return 'Only @psgtech.ac.in email addresses are allowed';
     }
-    if (role == 'student') {
-      final match = RegExp(r'^25mx(\d+)@psgtech\.ac\.in$').firstMatch(trimmed);
-      if (match == null) return 'Student email must be in format 25mxNNN@psgtech.ac.in';
-      final num = int.parse(match.group(1)!);
-      if (num < 100 || num > 363) return 'Student roll number must be between 100 and 363';
-    }
     return null;
   }
 

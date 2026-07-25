@@ -97,11 +97,12 @@ flutter run -d windows             # Windows desktop
 
 ### eCampus Login Flow
 
-1. App GETs `https://ecampus.psgtech.ac.in/studzone/Login` to extract the `__RequestVerificationToken` and antiforgery cookie
-2. POSTs `rollno`, `password`, `chkterms` with the CSRF token
-3. On success, signs into Firebase using `{rollno}@psgtech.ac.in` as email and the eCampus password
-4. If no Firebase account exists, one is created automatically
-5. Full Firebase Auth session is established — all Firestore queries work normally
+1. App GETs `https://ecampus.psgtech.ac.in/studzone/Login` to extract the `__RequestVerificationToken` from the HTML form and the `.AspNetCore.Antiforgery` cookie from response headers
+2. POSTs `rollno`, `password`, `chkterms` along with the CSRF token and cookie to `https://ecampus.psgtech.ac.in/studzone`
+3. On success (response does not contain the login form), credentials are confirmed valid
+4. App then signs into Firebase Auth using `{rollno}@psgtech.ac.in` as email and the eCampus password
+5. If no Firebase account exists for that email, one is created automatically
+6. Full Firebase Auth session is established — all Firestore queries work normally
 
 ## Firebase Setup
 

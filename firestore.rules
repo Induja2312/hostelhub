@@ -2,23 +2,75 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can read/write their own profile
-    match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-      allow read: if request.auth != null; // wardens/admins need to read other users
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
-    // Complaints: student can read/write their own, warden/admin can read all
+    function isAdmin() { return getUserRole() == 'admin'; }
+    function isWarden() { return getUserRole() == 'warden'; }
+
+    match /{document=**} {
+      allow read, write: if request.auth != null && isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
     match /complaints/{complaintId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null && (request.auth.uid == resource.data.studentId || isWarden() || isAdmin());
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.studentId;
+      allow update: if request.auth != null && (isWarden() || isAdmin());
+      allow delete: if isAdmin();
       match /messages/{msgId} {
         allow read, write: if request.auth != null;
       }
     }
 
-    // All other collections: any authenticated user
-    match /{collection}/{docId} {
+    match /resources/{resourceId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.ownerId;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null && (request.auth.uid == resource.data.ownerId || isAdmin());
+    }
+
+    match /service_requests/{requestId} {
+      allow read: if request.auth != null && (request.auth.uid == resource.data.studentId || isWarden() || isAdmin());
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.studentId;
+      allow update: if request.auth != null && (isWarden() || isAdmin());
+    }
+
+    match /lost_found/{itemId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.reportedBy;
+      allow update: if request.auth != null && (request.auth.uid == resource.data.reportedBy || isWarden());
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && (isWarden() || isAdmin());
+    }
+
+    match /parcels/{parcelId} {
+      allow read: if request.auth != null && (request.auth.uid == resource.data.studentId || isAdmin());
+      allow write: if request.auth != null && isAdmin();
+    }
+
+    match /emergency_alerts/{alertId} {
+      allow read: if request.auth != null && (isWarden() || isAdmin() || request.auth.uid == resource.data.sentBy);
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.sentBy;
+      allow update: if request.auth != null && (isWarden() || isAdmin());
+    }
+
+    match /notifications/{notifId} {
       allow read, write: if request.auth != null;
+    }
+
+    match /medical_requests/{reqId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
     }
   }
 }
